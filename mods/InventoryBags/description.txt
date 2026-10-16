@@ -1,0 +1,11 @@
+Lets you carry more stuff by stowing it away in bags, from which you can take it out again anytime.
+
+Open the bags by clicking the icon to the left of the wand selection.
+Then click on an item to stow it away, click on an item in the storage to take it back out again.
+It might bug out sometimes so make sure you have the right wand selected (maybe reselect it) before firing.
+
+The open/close button can be repositioned by toggling it draggable in the mod settings menu.
+
+Optional:
+If you install this mod you can have a keybind for opening/closing the bags (by default B):
+https://modworkshop.net/mod/37673

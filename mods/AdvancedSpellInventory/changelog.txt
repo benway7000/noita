@@ -1,0 +1,90 @@
+v0.10.1:
+- Add a setting to hide the button (so you can use it with keybind only)
+
+v0.10.0:
+- Add a blocklist to the settings which lets you specify spells by name that should not be stored
+
+v0.9.0:
+- Make the funny dump sound optional by adding a setting for it
+- Add sort by amount
+
+v0.8.0:
+- Dumping spells requires being able to edit wands.
+- Add a setting to turn that requirement off.
+ 
+v0.7.4:
+- Fix always cast spells being dumped alongside the regular spells with the dump command
+- Improve the dump sound
+
+v0.7.3:
+- Fix bug with auto storage
+
+v0.7.2:
+- Fix storage not getting saved after dumping spells
+- Fix dump audio still playing even if sounds are disabled in the settings
+
+v0.7.1:
+- Remove default dump keybind, you should bind it manually now to avoid accidentally dumping stuff
+
+v0.7.0:
+- Add button (press L-Shift) and key shortcut (requires M-Néé) to dump all spells from active wand to storage
+- Fix "" spell bugging out the interface
+- Fix spell uses not being shown correctly
+- Fix interaction with unlimited spells
+
+v0.6.0:
+- Add setting for closing spell inventory when inventory is opened
+- Add some compatibility with Entangled Worlds when dropping spells from inv/storage
+
+v0.5.0:
+- Add sorting by spell type
+- Removed "Sort" button, sorting now happens instantly on clicking the corresponding sort buttons, left click ascending, right click descending
+
+v0.4.4:
+- FIX: Spell uses were restored when dropping spells into world
+- FIX: Unlimited spells perk not updating spell charges in storage
+- FIX: Picking up a spell recharge with unlimited spells perk would restore the charges in storage to normal
+  (this one was just visual since it would get restored to unlimited on equip anyway)
+- FIX: Dragging a spell stack from storage onto an existing one in inventory should no longer make an item of the stack disappear
+
+v0.4.3:
+- FIX: Items that aren't spells will no longer be auto-stored when the option is on
+
+v0.4.2:
+- FIX: Storage was not saved after dropping spells into the world
+
+v0.4.1:
+- Add compatibility with different vanilla slot gfx sizes
+- Change button graphics
+
+v0.4.0:
+- Add setting for refreshing spells in storage when picking up spell refresh
+- Add back keybind support with M-Néé
+- FIX: Slots would bug after polymorph
+
+v0.3.0:
+- Add sounds and setting to turn them off again
+- Make quick-move from main to storage prefer stacking over placing them in a free slot
+- Add text fields for custom resolution to mod settings in addition to the auto-config button
+
+v0.2.3:
+- FIX: Spells could still be dropped with right-click even though window is closed
+- Take out M-Néé support for now
+
+v0.2.2:
+- FIX: More better compatibility with modded spells
+
+v0.2.1:
+- FIX: Spells added by other mods should work better now
+
+v0.2.0:
+- Add calibration mod setting for custom screen resolutions
+
+v0.1.2:
+- Remove leftover debug prints()
+
+v0.1.1:
+- FIX: Stored spells were not getting saved on auto-storage
+
+v0.1.0:
+- First release

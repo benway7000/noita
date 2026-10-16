@@ -1,0 +1,135 @@
+v0.11.0:
+- Add mod settings for a white/blacklist to define which items should not be automatically stored when auto-storage is on (based on item name).
+
+v0.10.0:
+- Add setting for automatically closing bags when opening inventory
+- Add setting to automatically store picked up wands/items
+
+v0.9.6:
+- Add compatibility with entangled worlds (experimental)
+
+v0.9.5:
+- Fix spells not showing their sprite with Bombs Materialized perk
+
+v0.9.4:
+- Expose active_wand_tab and active_item_tab as GlobalsGetValue for modders
+
+v0.9.3:
+- Fix tooltip z index
+
+v0.9.2:
+- Add feature for mods to check if an attempt was made to bag an unbaggable wand/item
+
+v0.9.1:
+- Add modding feature to mark items unbaggable
+- Fix wand disappearing bug when taking them out with right click (thanks 1KBestK for reporting it)
+
+v0.9.0:
+- Add ability to sort wands by stats
+- Add quick store and quick swap keyboard shortcuts (requires M-Néé mod)
+- Add sounds for opening/closing the bag and dropping items, can be disabled in mod settings
+
+v0.8.0:
+- Split the 'Amount of tabs' mod setting into individual settings for wands and items
+
+v0.7.0:
+- Add mod setting for setting the amount of tabs and capacity of each tab
+
+v0.6.2:
+- Fix wands not being interactable/visible when dropped while stored in a bag
+
+v0.6.1:
+- Fix crashes when taking out items with a GameEffect like brimstone etc
+- Place items slightly in front of player when taking out items
+
+v0.6.0:
+- Add ability to immediately drop items from bags on the floor by right clicking
+- Fix savefile getting flooded with more and more newlines after every game reload.
+
+v0.5.9:
+- FIX: Duplication bug when taking something out after being polymorphed
+- Add some checks to hopefully avoid some weird rare bugs
+
+v0.5.8:
+- Disable GUI interactivity when gamepad is connected
+
+v0.5.7:
+- Fix only one spell being rendered in the tooltips when a new wand has been picked up and
+  the Noita inventory has not been opened yet to assign the correct slot order of spells.
+- Fix bug that would cause the bag to stop working.
+
+v0.5.6:
+- Improve wand tooltips, show spells in their correct slots
+
+v0.5.5:
+- Fix wand duplication bug (hopefully)
+
+v0.5.4:
+- For mod developers: Added a way to check if the bag is open or not: GlobalsGetValue("InventoryBags_is_open", "0"), will be "1" if it's open, otherwise "0"
+
+v0.5.3:
+- Add custom keybind (by default B) (requires M-Néé mod https://modworkshop.net/mod/37673)
+
+v0.5.2:
+- Fix item being shown for 1 frame outside the bag when swapping items
+- Add setting to hide/show individual bags
+
+v0.5.1:
+- Block mouse clicks on the bag interface, to prevent accidental wand firing while taking something out and clicking in the gaps.
+- Fix ordering problem when swapping items.
+
+v0.5.0:
+- Add tabs to allow better organizing of wands and items (with customizable labels, check mod settings).
+- The GUI will now expand as soon as it is "full", to better indicate that it expands automatically and you can keep adding stuff forever.
+- Wand and items of an active old run should hopefully be converted to the new system.
+
+v0.4.8:
+- Fix small tooltip rendering bug with wands with many AC spells.
+
+v0.4.7:
+- Improve tooltip even more and also render the wand in the tooltip
+
+v0.4.6:
+- Add always cast spells to tooltip
+- Add spell type border for spells in tooltip
+- Improve tooltip by making it look almost exactly like the vanilla one
+
+v0.4.5:
+- Improve compatibility with some modded wands/spells
+
+v0.4.4:
+- Fix wands/items disappearing some more
+
+v0.4.3:
+- Fix wands/items disappearing or duplicating into other wands/items
+
+v0.4.2:
+- Fix lag/freezing when save & quitting with lots of wands (with lots of spells on them) or items
+
+v0.4.1:
+- Fix tooltip spell rows rendering
+
+v0.4.0:
+- Extended storage space, bags will expand automatically when filled above initial capacity
+
+v0.3.1:
+- Improved wand tooltips, now shows empty spell slots
+
+v0.3.0:
+- Added an Item Bag
+- Renamed mod from WandBag to InventoryBags
+
+v0.2.0:
+- The button can now be repositioned (check the mod setting menu)
+
+v0.1.3:
+- FIX: Things got wonky when another entity with an inventory existed.
+
+v0.1.2:
+- FIX: Should now work with most modded wands.
+
+v0.1.1:
+- FIX: Wrong path after renaming the mod from WandStorage to WandBag.
+
+v0.1.0:
+- First release.
