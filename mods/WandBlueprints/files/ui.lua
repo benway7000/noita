@@ -36,7 +36,9 @@ function M.button(gui, new_id, x, y, text, active)
   -- GuiGetPreviousWidgetInfo does not return right click for GuiImageNinePiece, so get it manually
   local right_clicked = hovered and InputIsMouseButtonJustDown(Mouse_right)
   GuiZSetForNextWidget(gui, 20 - 1)
-  GuiImageNinePiece(gui, new_id(), x + 5, y + 2, w - 1, h - 4, 1, "mods/WandBlueprints/files/button_9piece" .. (active and "_active" or "") .. ".png")
+  -- The nine piece border is drawn outside the given rectangle, starting at y + 4 keeps it out of the row above
+  -- and avoids empty space above the text
+  GuiImageNinePiece(gui, new_id(), x + 5, y + 4, w - 1, h - 6, 1, "mods/WandBlueprints/files/button_9piece" .. (active and "_active" or "") .. ".png")
   if hovered then
     GuiColorSetForNextWidget(gui, 0.95, 0.95, 0.7, 1)
   end
@@ -69,7 +71,11 @@ end
 -- follows the mouse and catches what is typed, which then gets appended to the focused input. Call once per frame.
 function M.capture_typing(gui, new_id)
   typed_this_frame = ""
-  if not M.focused_input then return end
+  if not M.focused_input then
+    -- Use up the same ids as below, so the ids of the following widgets don't change when focus changes
+    for _ = 1, 4 do new_id() end
+    return
+  end
   local mx, my = M.mouse_pos()
   GuiAnimateBegin(gui)
   GuiAnimateAlphaFadeIn(gui, new_id(), 0, 0, true)
@@ -110,13 +116,18 @@ function M.text_input(gui, new_id, key, x, y, value, width, max_length)
       new_value = new_value:gsub(".?$", "")
     end
   end
-  -- The real input never has focus (typing goes through the hidden one), so draw a blinking cursor ourselves
-  if is_focused and GameGetFrameNum() % 40 < 24 then
+  -- The real input never has focus (typing goes through the hidden one), so draw a blinking cursor ourselves.
+  -- It is drawn every frame and blinks via alpha: skipping it would shift the ids of all following widgets
+  -- on every blink, which makes Noita's GUI reposition them back and forth.
+  if is_focused then
     local text_w = GuiGetTextDimensions(gui, new_value)
     local caret_x = math.min(input_x + 2 + text_w, input_x + input_w - 2)
+    local alpha = GameGetFrameNum() % 40 < 24 and 1 or 0
     GuiZSetForNextWidget(gui, -1)
     GuiColorSetForNextWidget(gui, 1, 1, 0.6, 1)
-    GuiImage(gui, new_id(), caret_x, input_y + 1, "data/debug/whitebox.png", 1, 1 / 20, (input_h - 2) / 20)
+    GuiImage(gui, new_id(), caret_x, input_y + 1, "data/debug/whitebox.png", alpha, 1 / 20, (input_h - 2) / 20)
+  else
+    new_id()
   end
   if InputIsMouseButtonJustDown(Mouse_left) then
     if hovered then

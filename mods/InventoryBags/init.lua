@@ -1209,8 +1209,25 @@ function OnWorldPreUpdate()
 		swap_with_last_stored_item()
 	end
 	-- Toggle it open/closed
-	if not inventory_open and (GuiImageButton(gui, new_id(), button_pos_x, button_pos_y, "", "mods/InventoryBags/files/gui_button.png")
-		or _get_binding_pressed("toggle")) then
+	local toggle_pressed = _get_binding_pressed("toggle")
+	-- Hotkey while the vanilla inventory is open: close it and open the bags instead of toggling.
+	-- The frame stamp lets AdvancedSpellInventory (sharing the same hotkey) do the same this frame.
+	local frame = tostring(GameGetFrameNum())
+	if toggle_pressed and (inventory_open or GlobalsGetValue("InvHotkey_closed_inventory_frame", "") == frame) then
+		local inventory_gui_component = EntityGetFirstComponentIncludingDisabled(player, "InventoryGuiComponent")
+		if inventory_gui_component then
+			ComponentSetValue2(inventory_gui_component, "mActive", false)
+		end
+		GlobalsSetValue("InvHotkey_closed_inventory_frame", frame)
+		inventory_open = false
+		if sounds_enabled and not open then
+			local px, py = EntityGetFirstHitboxCenter(player)
+			GamePlaySound("data/audio/Desktop/ui.bank", "ui/inventory_open", px, py)
+		end
+		open = true
+		GlobalsSetValue("InventoryBags_is_open", 1)
+	elseif not inventory_open and (GuiImageButton(gui, new_id(), button_pos_x, button_pos_y, "", "mods/InventoryBags/files/gui_button.png")
+		or toggle_pressed) then
 		open = not open
 		if sounds_enabled then
 			local px, py = EntityGetFirstHitboxCenter(player)

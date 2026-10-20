@@ -1,13 +1,19 @@
 -- Per-run persistence.
 --
--- Globals are the only storage a sandboxed mod has that survives quitting and
--- resuming a run, and they end up in the save's XML, so the payload is RLE
--- compressed and base64 encoded. Cell data is only ever one of four values,
--- which RLE flattens extremely well.
+-- The map is written to its own file in the save folder rather than into the
+-- run's globals. Globals end up inside world_state.xml, and a long run's map
+-- runs to megabytes, which is not something to trust the engine's XML
+-- handling with. A file of our own has no such concerns, so the payload is
+-- stored as raw bytes with no base64 and no size cap. This is why the mod
+-- needs request_no_api_restrictions: a sandboxed mod has no io.
+--
+-- The save folder outlives any one run, so the file carries a run id and is
+-- only trusted when that id matches the one kept in the run's globals. A new
+-- game has no id yet, gets a fresh one, and so never picks up an old map.
 --
 -- Serialising a thousand chunks at once would cost a visible hitch, so the
 -- work is spread over frames: a snapshot of the chunk list is taken and a
--- handful are encoded per frame until the job finishes and the globals are
+-- handful are encoded per frame until the job finishes and the file is
 -- written.
 
 local C = dofile_once("mods/cartographer/files/config.lua")
@@ -22,66 +28,85 @@ local floor = math.floor
 local schar, sbyte, ssub = string.char, string.byte, string.sub
 local concat = table.concat
 
-local KEY_COUNT = "CARTOGRAPHER_PARTS"
-local KEY_PART = "CARTOGRAPHER_DATA_"
-local KEY_MARKERS = "CARTOGRAPHER_MARKERS"
+local FILE_NAME = "cartographer_map.dat"
+local FILE_MAGIC = "CARTOGRAPHER 2"
+local KEY_RUN = "CARTOGRAPHER_RUN_ID"
+local VERSION = "VM1" -- chunk payload format, shared with the old globals
 
--- Keys used before the mod was renamed. Read as a fallback so a run started
--- under the old name keeps everything it had explored; the next autosave
--- rewrites it under the current keys.
-local LEGACY_COUNT = "VALHEIM_MAP_PARTS"
-local LEGACY_PART = "VALHEIM_MAP_DATA_"
-local LEGACY_MARKERS = "VALHEIM_MAP_MARKERS"
-local PART_SIZE = 60000
-local VERSION = "VM1"
+-- Where runs started before the move to a file kept their map. Read once to
+-- migrate, then cleared after the first successful file write.
+local LEGACY_KEYS = {
+	{ count = "CARTOGRAPHER_PARTS", part = "CARTOGRAPHER_DATA_", markers = "CARTOGRAPHER_MARKERS" },
+	-- From before the mod was renamed.
+	{ count = "VALHEIM_MAP_PARTS", part = "VALHEIM_MAP_DATA_", markers = "VALHEIM_MAP_MARKERS" },
+}
 
 local M = {}
 
 M.chunks_per_frame = 24
 M.autosave_interval = 1800 -- frames (~30s at 60fps)
 
--- Refuse to write more than this into the save. See finish_job().
-M.max_bytes = 2 * 1024 * 1024
-M.oversized = false
+-- Why the last save failed, or nil. Shown on the map so a failure is never
+-- silent: reloading would lose everything explored since the last good save.
+M.error = nil
 
 local job = nil
 local last_save_frame = 0
 local loaded = false
+local run_id = nil
+-- Cleared on the first file write of the session. Checked every session rather
+-- than only after a migration, in case a crash lost the clear last time.
+local legacy_pending = true
+
+-- ------------------------------------------------------------------- paths
+
+-- Noita keeps its saves under %USERPROFILE%\AppData\LocalLow, and Proton
+-- sets USERPROFILE too, so this holds on Linux as well.
+local function file_path()
+	local home = os.getenv("USERPROFILE")
+	if not home or home == "" then return nil end
+	return home .. "\\AppData\\LocalLow\\Nolla_Games_Noita\\save00\\" .. FILE_NAME
+end
+
+local function read_file(path)
+	local f = io.open(path, "rb")
+	if not f then return nil end
+	local data = f:read("*a")
+	f:close()
+	return data
+end
+
+-- Write to a temp file and swap it in, so a crash mid-write can never leave
+-- a truncated map behind. Windows will not rename over an existing file, so
+-- the old one is removed first; load() falls back to the temp file to cover
+-- a crash in that gap.
+local function write_file(data)
+	local path = file_path()
+	if not path then return false, "save folder not found" end
+	local tmp = path .. ".tmp"
+
+	local f, err = io.open(tmp, "wb")
+	if not f then return false, tostring(err) end
+	local ok, werr = f:write(data)
+	f:close()
+	if not ok then
+		os.remove(tmp)
+		return false, tostring(werr)
+	end
+
+	os.remove(path)
+	local rok, rerr = os.rename(tmp, path)
+	if not rok then return false, tostring(rerr) end
+	return true
+end
 
 -- ------------------------------------------------------------------ base64
+
+-- Only needed to read maps out of the old globals.
 
 local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 local B64R = {}
 for i = 1, #B64 do B64R[ssub(B64, i, i)] = i - 1 end
-
-local function b64encode(data)
-	local out = {}
-	local n = #data
-	local i = 1
-	while i + 2 <= n do
-		local a, b, c = sbyte(data, i, i + 2)
-		local v = a * 65536 + b * 256 + c
-		out[#out + 1] = ssub(B64, floor(v / 262144) + 1, floor(v / 262144) + 1)
-			.. ssub(B64, floor(v / 4096) % 64 + 1, floor(v / 4096) % 64 + 1)
-			.. ssub(B64, floor(v / 64) % 64 + 1, floor(v / 64) % 64 + 1)
-			.. ssub(B64, v % 64 + 1, v % 64 + 1)
-		i = i + 3
-	end
-	local rem = n - i + 1
-	if rem == 1 then
-		local a = sbyte(data, i)
-		local v = a * 16
-		out[#out + 1] = ssub(B64, floor(v / 64) + 1, floor(v / 64) + 1)
-			.. ssub(B64, v % 64 + 1, v % 64 + 1) .. "=="
-	elseif rem == 2 then
-		local a, b = sbyte(data, i, i + 1)
-		local v = (a * 256 + b) * 4
-		out[#out + 1] = ssub(B64, floor(v / 4096) + 1, floor(v / 4096) + 1)
-			.. ssub(B64, floor(v / 64) % 64 + 1, floor(v / 64) % 64 + 1)
-			.. ssub(B64, v % 64 + 1, v % 64 + 1) .. "="
-	end
-	return concat(out)
-end
 
 local function b64decode(s)
 	s = s:gsub("[^A-Za-z0-9+/=]", "")
@@ -155,114 +180,8 @@ local function encode_chunk(ch)
 		.. u32(#body) .. body
 end
 
--- ---------------------------------------------------------------- save job
-
-local function begin_job()
-	local list = {}
-	for _, col in pairs(store.chunks) do
-		for _, ch in pairs(col) do
-			if ch.known > 0 then list[#list + 1] = ch end
-		end
-	end
-	job = { list = list, i = 1, parts = { VERSION, u32(#list) } }
-end
-
-local function finish_job()
-	local raw = concat(job.parts)
-	local encoded = b64encode(raw)
-
-	-- Hard ceiling on what we are willing to push into someone's save file.
-	--
-	-- This data ends up inside the run's world state, and a long run can
-	-- explore a lot of chunks. Rather than let the payload grow without
-	-- limit, stop writing past the cap and keep the last good copy: an
-	-- out-of-date map is a far better failure than a bloated save.
-	if #encoded > M.max_bytes then
-		M.oversized = true
-		job = nil
-		last_save_frame = GameGetFrameNum()
-		return
-	end
-	M.oversized = false
-
-	local count = math.ceil(#encoded / PART_SIZE)
-	for p = 1, count do
-		GlobalsSetValue(KEY_PART .. p, ssub(encoded, (p - 1) * PART_SIZE + 1, p * PART_SIZE))
-	end
-	-- Clear any parts left over from a previously larger save.
-	local old = tonumber(GlobalsGetValue(KEY_COUNT, "0")) or 0
-	for p = count + 1, old do
-		GlobalsSetValue(KEY_PART .. p, "")
-	end
-	GlobalsSetValue(KEY_COUNT, tostring(count))
-	GlobalsSetValue(KEY_MARKERS, markers.serialize())
-
-	job = nil
-	last_save_frame = GameGetFrameNum()
-end
-
-function M.tick()
-	if job then
-		local n = 0
-		while job.i <= #job.list and n < M.chunks_per_frame do
-			job.parts[#job.parts + 1] = encode_chunk(job.list[job.i])
-			job.i = job.i + 1
-			n = n + 1
-		end
-		if job.i > #job.list then finish_job() end
-		return
-	end
-
-	if not loaded then return end
-	if GameGetFrameNum() - last_save_frame >= M.autosave_interval and store.chunk_count > 0 then
-		begin_job()
-	end
-end
-
--- Runs the whole save immediately, for shutdown-ish moments.
-function M.save_now()
-	if not loaded then return end
-	begin_job()
-	while job do
-		local n = 0
-		while job.i <= #job.list and n < 4096 do
-			job.parts[#job.parts + 1] = encode_chunk(job.list[job.i])
-			job.i = job.i + 1
-			n = n + 1
-		end
-		if job.i > #job.list then finish_job() end
-	end
-end
-
--- -------------------------------------------------------------------- load
-
-function M.load()
-	-- OnPlayerSpawned can fire more than once in a session (respawns, polymorph
-	-- shenanigans). Reloading would reset the store and throw away everything
-	-- explored since the last autosave, so only ever load once.
-	if loaded then return false end
-	loaded = true
-	last_save_frame = GameGetFrameNum()
-
-	-- Prefer the current keys, but fall back to the pre-rename ones so a run
-	-- started under the old mod name does not lose what it had explored.
-	local count = tonumber(GlobalsGetValue(KEY_COUNT, "0")) or 0
-	local kpart, kmarkers = KEY_PART, KEY_MARKERS
-	if count <= 0 then
-		local legacy = tonumber(GlobalsGetValue(LEGACY_COUNT, "0")) or 0
-		if legacy > 0 then
-			count, kpart, kmarkers = legacy, LEGACY_PART, LEGACY_MARKERS
-		end
-	end
-
-	markers.deserialize(GlobalsGetValue(kmarkers, ""))
-	if count <= 0 then return false end
-
-	local parts = {}
-	for p = 1, count do
-		parts[#parts + 1] = GlobalsGetValue(kpart .. p, "")
-	end
-	local raw = b64decode(concat(parts))
+-- Rebuilds the store from a VM1 payload. Returns false if it is not one.
+local function decode_payload(raw)
 	if #raw < 7 or ssub(raw, 1, 3) ~= VERSION then return false end
 
 	local i = 4
@@ -317,11 +236,134 @@ function M.load()
 	return true
 end
 
-function M.clear()
-	local count = tonumber(GlobalsGetValue(KEY_COUNT, "0")) or 0
-	for p = 1, count do GlobalsSetValue(KEY_PART .. p, "") end
-	GlobalsSetValue(KEY_COUNT, "0")
-	GlobalsSetValue(KEY_MARKERS, "")
+-- ---------------------------------------------------------------- save job
+
+local function clear_legacy()
+	for _, k in ipairs(LEGACY_KEYS) do
+		local count = tonumber(GlobalsGetValue(k.count, "0")) or 0
+		for p = 1, count do GlobalsSetValue(k.part .. p, "") end
+		GlobalsSetValue(k.count, "0")
+		GlobalsSetValue(k.markers, "")
+	end
+end
+
+local function begin_job()
+	local list = {}
+	for _, col in pairs(store.chunks) do
+		for _, ch in pairs(col) do
+			if ch.known > 0 then list[#list + 1] = ch end
+		end
+	end
+	job = { list = list, i = 1, parts = { VERSION, u32(#list) } }
+end
+
+-- File layout: a text header (magic, run id, marker byte count), then the
+-- serialised markers, then the binary chunk payload.
+local function finish_job()
+	local m = markers.serialize()
+	local data = FILE_MAGIC .. "\n" .. run_id .. "\n" .. #m .. "\n" .. m .. concat(job.parts)
+	job = nil
+	last_save_frame = GameGetFrameNum()
+
+	local ok, err = write_file(data)
+	if not ok then
+		M.error = err
+		return
+	end
+	M.error = nil
+
+	-- The map now lives in the file, so stop carrying the old copy around
+	-- in the save.
+	if legacy_pending then
+		clear_legacy()
+		legacy_pending = false
+	end
+end
+
+function M.tick()
+	if job then
+		local n = 0
+		while job.i <= #job.list and n < M.chunks_per_frame do
+			job.parts[#job.parts + 1] = encode_chunk(job.list[job.i])
+			job.i = job.i + 1
+			n = n + 1
+		end
+		if job.i > #job.list then finish_job() end
+		return
+	end
+
+	if not loaded then return end
+	if GameGetFrameNum() - last_save_frame >= M.autosave_interval and store.chunk_count > 0 then
+		begin_job()
+	end
+end
+
+-- Runs the whole save immediately, for shutdown-ish moments.
+function M.save_now()
+	if not loaded then return end
+	begin_job()
+	while job do
+		local n = 0
+		while job.i <= #job.list and n < 4096 do
+			job.parts[#job.parts + 1] = encode_chunk(job.list[job.i])
+			job.i = job.i + 1
+			n = n + 1
+		end
+		if job.i > #job.list then finish_job() end
+	end
+end
+
+-- -------------------------------------------------------------------- load
+
+-- Reads this run's map from the file. False if there is none, or if the file
+-- belongs to some other run.
+local function load_file()
+	local path = file_path()
+	if not path then return false end
+	local data = read_file(path) or read_file(path .. ".tmp")
+	if not data then return false end
+
+	local id, mlen, pos = data:match("^" .. FILE_MAGIC .. "\n([^\n]*)\n(%d+)\n()")
+	if not id or id ~= run_id then return false end
+	mlen = tonumber(mlen)
+
+	markers.deserialize(ssub(data, pos, pos + mlen - 1))
+	decode_payload(ssub(data, pos + mlen))
+	return true
+end
+
+-- Reads a map left in the globals by an older version of the mod.
+local function load_legacy()
+	for _, k in ipairs(LEGACY_KEYS) do
+		local count = tonumber(GlobalsGetValue(k.count, "0")) or 0
+		if count > 0 then
+			markers.deserialize(GlobalsGetValue(k.markers, ""))
+			local parts = {}
+			for p = 1, count do
+				parts[#parts + 1] = GlobalsGetValue(k.part .. p, "")
+			end
+			return decode_payload(b64decode(concat(parts)))
+		end
+	end
+	return false
+end
+
+function M.load()
+	-- OnPlayerSpawned can fire more than once in a session (respawns, polymorph
+	-- shenanigans). Reloading would reset the store and throw away everything
+	-- explored since the last autosave, so only ever load once.
+	if loaded then return false end
+	loaded = true
+	last_save_frame = GameGetFrameNum()
+
+	run_id = GlobalsGetValue(KEY_RUN, "")
+	if run_id == "" then
+		run_id = ("%d-%d"):format(os.time(), floor(os.clock() * 1000000))
+		GlobalsSetValue(KEY_RUN, run_id)
+	end
+
+	if load_file() then return true end
+	return load_legacy()
 end
 
 return M

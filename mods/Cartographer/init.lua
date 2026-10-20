@@ -12,6 +12,8 @@ local mapview = dofile_once("mods/cartographer/files/mapview.lua")
 local persist = dofile_once("mods/cartographer/files/persist.lua")
 local markers = dofile_once("mods/cartographer/files/markers.lua")
 
+ModLuaFileAppend("mods/mnee/bindings.lua", "mods/cartographer/files/mnee.lua")
+
 local settings_frame = -1
 
 local function num_setting(id, fallback)

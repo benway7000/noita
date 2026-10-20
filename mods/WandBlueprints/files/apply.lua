@@ -214,8 +214,8 @@ end
 --   takes = { { slot, action_id } },   -- spells still to be taken from ASI
 -- }
 -- If stores or takes aren't empty, pass the result to M.send_asi_request and later M.finish (or M.fallback).
--- clear = true takes all spells off the wand first (they go to ASI and can come right back from there).
-function M.apply(bp, wand_id, clear)
+-- Spells on the wand that the blueprint doesn't use come off it, so the wand ends up holding just the blueprint.
+function M.apply(bp, wand_id)
   local wand = EZWand(wand_id)
   local capacity = wand.capacity
   local use_asi = M.is_asi_available()
@@ -236,24 +236,22 @@ function M.apply(bp, wand_id, clear)
   local pool = wand:GetSpells()
   local used = {}
   local filled = {}
-  if not clear then
-    -- Pass 1: spells already in the right place stay there
-    for i, spell in ipairs(pool) do
-      if wanted[spell.inventory_x] == spell.action_id and not filled[spell.inventory_x] then
-        used[i] = true
-        filled[spell.inventory_x] = spell.entity_id
-      end
+  -- Pass 1: spells already in the right place stay there
+  for i, spell in ipairs(pool) do
+    if wanted[spell.inventory_x] == spell.action_id and not filled[spell.inventory_x] then
+      used[i] = true
+      filled[spell.inventory_x] = spell.entity_id
     end
-    -- Pass 2: reuse the wand's other spells by moving them to the right slot (keeps their charges)
-    for pos = 0, capacity - 1 do
-      local action_id = wanted[pos]
-      if action_id and not filled[pos] then
-        for i, spell in ipairs(pool) do
-          if not used[i] and spell.action_id == action_id then
-            used[i] = true
-            filled[pos] = spell.entity_id
-            break
-          end
+  end
+  -- Pass 2: reuse the wand's other spells by moving them to the right slot (keeps their charges)
+  for pos = 0, capacity - 1 do
+    local action_id = wanted[pos]
+    if action_id and not filled[pos] then
+      for i, spell in ipairs(pool) do
+        if not used[i] and spell.action_id == action_id then
+          used[i] = true
+          filled[pos] = spell.entity_id
+          break
         end
       end
     end

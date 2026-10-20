@@ -1,5 +1,5 @@
 <Mod
 	name="Wand Blueprints"
-	description="Save, edit and apply spell layouts for wands. Integrates with Advanced Spell Inventory, hotkeys via M-Nee."
+	description="Save, edit and apply spell layouts for wands. Requires M-Nee for hotkeys. Integrates with Advanced Spell Inventory."
 	request_no_api_restrictions="0"
 ></Mod>

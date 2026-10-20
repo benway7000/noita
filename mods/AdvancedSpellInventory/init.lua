@@ -935,6 +935,9 @@ local function render_filter_panel(gui, new_id, origin_x, origin_y)
     GuiAnimateEnd(gui)
 
     GuiEndScrollContainer(gui)
+  else
+    -- Use up the same ids as above, so the ids of the following widgets don't change when focus changes
+    for _ = 1, 4 do new_id() end
   end
   -- Input field with logic to disable inputs and have backspace-holding delete functionality
   if input_focused then
@@ -943,6 +946,8 @@ local function render_filter_panel(gui, new_id, origin_x, origin_y)
   GuiText(gui, 1, 0, " Filter:")
   local new_search_filter = GuiTextInput(gui, new_id(), 0, 0, search_filter or "", 54, 8)
   local clicked, right_clicked, hovered, x, y, width, height, draw_x, draw_y, draw_width, draw_height = GuiGetPreviousWidgetInfo(gui)
+  -- The first row's height, measured here because the caret drawn below would otherwise be the last widget of the row
+  local first_row_height = height
   if InputIsMouseButtonJustDown(Mouse_right) and hovered then
     new_search_filter = ""
     search_filter = ""
@@ -961,15 +966,18 @@ local function render_filter_panel(gui, new_id, origin_x, origin_y)
   end
   if input_focused then
     search_filter = new_search_filter
-    -- The real input never has focus (typing goes through the hidden one), so draw a blinking cursor ourselves
-    if GameGetFrameNum() % 40 < 24 then
-      local text_w = GuiGetTextDimensions(gui, search_filter)
-      local caret_x = math.min(x + 2 + text_w, x + width - 2)
-      GuiOptionsAddForNextWidget(gui, GUI_OPTION.Layout_NoLayouting)
-      GuiZSetForNextWidget(gui, -1)
-      GuiColorSetForNextWidget(gui, 0.9, 0.9, 0, 1)
-      GuiImage(gui, new_id(), caret_x, y + 1, "data/debug/whitebox.png", 1, 1 / 20, (height - 2) / 20)
-    end
+    -- The real input never has focus (typing goes through the hidden one), so draw a blinking cursor ourselves.
+    -- It is drawn every frame and blinks via alpha: skipping it would shift the ids of all following widgets
+    -- on every blink, which makes Noita's GUI reposition them back and forth.
+    local text_w = GuiGetTextDimensions(gui, search_filter)
+    local caret_x = math.min(x + 2 + text_w, x + width - 2)
+    local alpha = GameGetFrameNum() % 40 < 24 and 1 or 0
+    GuiOptionsAddForNextWidget(gui, GUI_OPTION.Layout_NoLayouting)
+    GuiZSetForNextWidget(gui, -1)
+    GuiColorSetForNextWidget(gui, 0.9, 0.9, 0, 1)
+    GuiImage(gui, new_id(), caret_x, y + 1, "data/debug/whitebox.png", alpha, 1 / 20, (height - 2) / 20)
+  else
+    new_id()
   end
   if InputIsMouseButtonJustDown(Mouse_left) then
     input_focused = hovered
@@ -979,9 +987,8 @@ local function render_filter_panel(gui, new_id, origin_x, origin_y)
   input_hovered = hovered
   GuiLayoutEnd(gui)
   -- Second row, filter by spell type
-  local clicked, right_clicked, hovered, x, y, width, height, draw_x, draw_y, draw_width, draw_height = GuiGetPreviousWidgetInfo(gui)
-  total_height = total_height + height + 2
-  GuiLayoutBeginHorizontal(gui, origin_x - 1, origin_y + height + 2, true)
+  total_height = total_height + first_row_height + 2
+  GuiLayoutBeginHorizontal(gui, origin_x - 1, origin_y + first_row_height + 2, true)
   local text = "Filter spells by type:"
   local text_width, text_height = GuiGetTextDimensions(gui, text)
   GuiText(gui, 4, (slot_height - text_height) / 2, text)
@@ -1318,7 +1325,23 @@ function OnWorldPostUpdate()
       end
     end
     -- Toggle it open/closed
-    if is_keybind_down() or (not InputIsKeyDown(Key_LSHIFT) and button_clicked) then
+    local keybind_down = is_keybind_down()
+    -- Hotkey while the vanilla inventory is open: close it and open instead of toggling.
+    -- The frame stamp lets InventoryBags (sharing the same hotkey) do the same this frame.
+    local frame = tostring(GameGetFrameNum())
+    if keybind_down and (inventory_open or GlobalsGetValue("InvHotkey_closed_inventory_frame", "") == frame) then
+      local inventory_gui_component = EntityGetFirstComponentIncludingDisabled(player, "InventoryGuiComponent")
+      if inventory_gui_component then
+        ComponentSetValue2(inventory_gui_component, "mActive", false)
+      end
+      GlobalsSetValue("InvHotkey_closed_inventory_frame", frame)
+      inventory_open = false
+      if not open then
+        open = true
+        GlobalsSetValue("AdvancedSpellInventory_is_open", "1")
+        play_ui_sound("inventory_open")
+      end
+    elseif keybind_down or (not InputIsKeyDown(Key_LSHIFT) and button_clicked) then
       open = not open
       GlobalsSetValue("AdvancedSpellInventory_is_open", tostring(open and 1 or 0))
       play_ui_sound("inventory_" .. (open and "open" or "close"))

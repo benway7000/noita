@@ -621,11 +621,11 @@ local function draw_chrome(view, alpha)
 		text(view.clip_x1 - 150, view.clip_y1 + 2, s, C.COL_TEXT_DIM, alpha * 0.8)
 	end
 
-	-- Never fail silently: if the map has outgrown what we will write into
-	-- the save, say so, because reloading will lose the newest exploration.
-	if persist.oversized then
+	-- Never fail silently: if the map could not be written, say so, because
+	-- reloading will lose the newest exploration.
+	if persist.error then
 		text(view.clip_x0 + 3, view.clip_y0 - 11 + 9,
-			"map too large to save - newest exploration will not persist",
+			"map not saved (" .. persist.error .. ") - newest exploration will not persist",
 			markers.COLOURS[markers.WAND], alpha)
 	end
 end
@@ -639,12 +639,24 @@ local function modifier_held()
 	return false
 end
 
+-- Uses the M-Nee binding when M-Nee is enabled (rebindable, and muted while
+-- another mod has a text field focused), the raw M key otherwise.
+local use_mnee
+local function map_key_pressed()
+	if use_mnee == nil then
+		use_mnee = ModIsEnabled("mnee")
+		if use_mnee then dofile_once("mods/mnee/lib.lua") end
+	end
+	if use_mnee then return mnee.mnin_bind("Cartographer", "toggle_map", true) end
+	return InputIsKeyJustDown(C.KEY_MAP) and not modifier_held()
+end
+
 function M.update()
 	if gui == nil then gui = GuiCreate() end
 
 	-- Toggle. Guarded so it does not fire while a real inventory screen is up,
 	-- or as part of a modifier combo (e.g. Ctrl+M for M-Néé).
-	if InputIsKeyJustDown(C.KEY_MAP) and not modifier_held()
+	if map_key_pressed()
 		and not (GameIsInventoryOpen() and not V.open) then
 		M.toggle()
 	end

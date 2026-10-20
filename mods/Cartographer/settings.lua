@@ -7,7 +7,7 @@ mod_settings = {
 	{
 		id = "persist",
 		ui_name = "Remember the map across saves",
-		ui_description = "Explored terrain is stored in the save file, so quitting\nand resuming a run keeps everything you have uncovered.",
+		ui_description = "Explored terrain is stored in a file in the save folder, so quitting\nand resuming a run keeps everything you have uncovered.",
 		value_default = true,
 		scope = MOD_SETTING_SCOPE_RUNTIME,
 	},

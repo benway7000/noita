@@ -14,9 +14,7 @@ local apply = dofile_once("mods/WandBlueprints/files/apply.lua")
 local ui = dofile_once("mods/WandBlueprints/files/ui.lua")
 local editor = dofile_once("mods/WandBlueprints/files/editor.lua")
 
-if ModIsEnabled("mnee") then
-  ModLuaFileAppend("mods/mnee/bindings.lua", "mods/WandBlueprints/files/mnee.lua")
-end
+ModLuaFileAppend("mods/mnee/bindings.lua", "mods/WandBlueprints/files/mnee.lua")
 
 local MOD_ID = "WandBlueprints"
 local NUM_HOTKEYS = 10
@@ -121,8 +119,7 @@ local function report_apply(bp_name, result, note)
   notify(lines)
 end
 
--- clear = true first dumps all spells on the wand into Advanced Spell Inventory
-local function apply_blueprint(bp, clear)
+local function apply_blueprint(bp)
   if pending_apply then
     deny({ "Still applying blueprint " .. pending_apply.bp_name })
     return
@@ -136,11 +133,7 @@ local function apply_blueprint(bp, clear)
     deny({ "Blueprint " .. bp.name .. ": can only be applied where wand tinkering is possible" })
     return
   end
-  if clear and not apply.is_asi_available() then
-    deny({ "Clear & Apply needs Advanced Spell Inventory to put the spells in" })
-    return
-  end
-  local result = apply.apply(bp, wand_id, clear)
+  local result = apply.apply(bp, wand_id)
   if apply.needs_asi(result) then
     -- Finished in update_pending_apply once ASI has done its part
     apply.send_asi_request(result)
@@ -351,14 +344,7 @@ local function render_list(new_id)
     local clicked, _, w = ui.button(gui, new_id, bx, by, "Apply")
     if clicked then
       confirm = nil
-      apply_blueprint(bp, false)
-    end
-    bx = bx + w
-    local clicked, _, w = ui.button(gui, new_id, bx, by, "Clear & Apply")
-    GuiTooltip(gui, "Clear & Apply", "First puts all spells of the held wand into Advanced Spell Inventory,\nthen applies the blueprint")
-    if clicked then
-      confirm = nil
-      apply_blueprint(bp, true)
+      apply_blueprint(bp)
     end
     bx = bx + w
     local clicked, _, w = ui.button(gui, new_id, bx, by, "Edit")
@@ -464,6 +450,7 @@ local function update_typing_lock(player, typing)
     end
   end
   controls_enabled_last_frame = controls_enabled
+  -- M-Nee's service mode mutes every mod's M-Nee bindings (e.g. Cartographer's map key) while typing here
   if mnee_ready and typing ~= typing_last_frame then
     if typing then
       GameAddFlagRun(mnee.SERV_MODE)
@@ -484,7 +471,7 @@ local function handle_hotkeys()
     if mnee.mnin_bind(MOD_ID, "hotkey_" .. k, true) then
       for i, bp in ipairs(blueprints) do
         if bp.hotkey == k then
-          apply_blueprint(bp, false)
+          apply_blueprint(bp)
           break
         end
       end
@@ -506,9 +493,12 @@ function OnWorldPostUpdate()
 
   -- Run this 1 frame after the player has spawned, so other mods had time to append to gun_actions.lua
   if frame_player_spawned and frame_player_spawned == GameGetFrameNum() - 1 then
+    -- M-Nee is required; if it's missing, say so once and leave hotkeys off rather than erroring
     if ModIsEnabled("mnee") then
       dofile_once("mods/mnee/lib.lua")
-      mnee_ready = mnee ~= nil and mnee.mnin_bind ~= nil
+      mnee_ready = true
+    else
+      GamePrint("Wand Blueprints: M-Nee is not enabled, hotkeys will not work")
     end
     dofile_once("data/scripts/gun/gun_actions.lua")
     EZWand = EZWand or dofile_once("mods/WandBlueprints/lib/EZWand/EZWand.lua")
