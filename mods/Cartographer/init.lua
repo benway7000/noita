@@ -57,6 +57,7 @@ end
 
 function OnWorldPostUpdate()
 	refresh_settings()
+	persist.check_new_game_plus()
 	scanner.update()
 	mapview.update()
 	persist.tick()

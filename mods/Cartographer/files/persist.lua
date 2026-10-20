@@ -10,6 +10,8 @@
 -- The save folder outlives any one run, so the file carries a run id and is
 -- only trusted when that id matches the one kept in the run's globals. A new
 -- game has no id yet, gets a fresh one, and so never picks up an old map.
+-- NG+ keeps the run's globals but not its world, so the NG+ cycle is part of
+-- the id too.
 --
 -- Serialising a thousand chunks at once would cost a visible hitch, so the
 -- work is spread over frames: a snapshot of the chunk list is taken and a
@@ -54,9 +56,20 @@ local job = nil
 local last_save_frame = 0
 local loaded = false
 local run_id = nil
+-- NG+ cycle the map belongs to. NG+ keeps the run (and its globals) but
+-- regenerates the world, so the map is keyed on run id + cycle.
+local ng_plus = nil
 -- Cleared on the first file write of the session. Checked every session rather
 -- than only after a migration, in case a crash lost the clear last time.
 local legacy_pending = true
+
+local function ng_plus_count()
+	return tonumber(SessionNumbersGetValue("NEW_GAME_PLUS_COUNT")) or 0
+end
+
+local function file_id()
+	return run_id .. ":" .. ng_plus
+end
 
 -- ------------------------------------------------------------------- paths
 
@@ -261,7 +274,7 @@ end
 -- serialised markers, then the binary chunk payload.
 local function finish_job()
 	local m = markers.serialize()
-	local data = FILE_MAGIC .. "\n" .. run_id .. "\n" .. #m .. "\n" .. m .. concat(job.parts)
+	local data = FILE_MAGIC .. "\n" .. file_id() .. "\n" .. #m .. "\n" .. m .. concat(job.parts)
 	job = nil
 	last_save_frame = GameGetFrameNum()
 
@@ -278,6 +291,22 @@ local function finish_job()
 		clear_legacy()
 		legacy_pending = false
 	end
+end
+
+-- Starting NG+ regenerates the world without respawning the player or
+-- reloading mods, so the only sign is the cycle count going up. When it does,
+-- the old map no longer describes anything: drop it (and any half-written
+-- save of it) and let the scanner start over. Runs whether or not persistence
+-- is on, since the in-memory map is just as stale either way.
+function M.check_new_game_plus()
+	local n = ng_plus_count()
+	if ng_plus == nil then ng_plus = n end
+	if n == ng_plus then return end
+	ng_plus = n
+	job = nil
+	store.reset()
+	markers.reset()
+	last_save_frame = GameGetFrameNum()
 end
 
 function M.tick()
@@ -324,7 +353,10 @@ local function load_file()
 	if not data then return false end
 
 	local id, mlen, pos = data:match("^" .. FILE_MAGIC .. "\n([^\n]*)\n(%d+)\n()")
-	if not id or id ~= run_id then return false end
+	if not id then return false end
+	-- Files written before NG+ keying carry the bare run id. Only trust those
+	-- outside NG+, since there is no telling which cycle they were saved in.
+	if id ~= file_id() and not (ng_plus == 0 and id == run_id) then return false end
 	mlen = tonumber(mlen)
 
 	markers.deserialize(ssub(data, pos, pos + mlen - 1))
@@ -361,6 +393,7 @@ function M.load()
 		run_id = ("%d-%d"):format(os.time(), floor(os.clock() * 1000000))
 		GlobalsSetValue(KEY_RUN, run_id)
 	end
+	ng_plus = ng_plus_count()
 
 	if load_file() then return true end
 	return load_legacy()
