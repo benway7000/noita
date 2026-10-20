@@ -531,8 +531,11 @@ function OnWorldPostUpdate()
   update_pending_apply()
   handle_hotkeys()
 
-  -- Toggle button, right-click drag to move it
-  if show_button and not inventory_open then
+  -- Toggle button, right-click drag to move it. Hidden while Advanced Spell Inventory's or Inventory Bags' panel is
+  -- open, since it sits on top of them by default.
+  local other_panel_open = GlobalsGetValue("AdvancedSpellInventory_is_open", "0") ~= "0"
+    or GlobalsGetValue("InventoryBags_is_open", "0") ~= "0"
+  if show_button and not inventory_open and not other_panel_open then
     local clicked = GuiImageButton(gui, new_id(), button_pos_x, button_pos_y, "", "mods/WandBlueprints/files/gui_button.png")
     local _, _, hovered = GuiGetPreviousWidgetInfo(gui)
     GuiTooltip(gui, "Wand Blueprints", "Right-click and drag to move")

@@ -11,6 +11,7 @@ See [README.md](README.md) for what the mod does and how to use it.
 
 ### Fixed
 
+- The on-screen button is hidden while Advanced Spell Inventory's or Inventory Bags' panel is open. By default it sat on top of them.
 - Widget IDs no longer change when a text field gains or loses focus, or when its cursor blinks. Changing IDs made Noita's GUI jitter the widgets below the field. The cursor now blinks by changing its alpha instead of being skipped every other frame.
 - Button backgrounds no longer overlap the row above them, and there's less empty space above the button text.
 

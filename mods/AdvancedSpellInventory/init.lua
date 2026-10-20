@@ -868,6 +868,8 @@ end
 
 function OnPlayerSpawned(player)
   frame_player_spawned = GameGetFrameNum()
+  -- open starts out false, so don't let a saved "1" tell other mods (WandBlueprints) the panel is open
+  GlobalsSetValue("AdvancedSpellInventory_is_open", "0")
   if ModIsEnabled("mnee") then
     function is_keybind_down()
       return get_binding_pressed("AdvSpellInv", "toggle")
@@ -1138,6 +1140,7 @@ end
 function OnWorldPostUpdate()
   if opening_inv_closes_spell_inv and GameIsInventoryOpen() then
     open = false
+    GlobalsSetValue("AdvancedSpellInventory_is_open", "0")
   end
 
   local id = 1
@@ -1327,9 +1330,13 @@ function OnWorldPostUpdate()
     -- Toggle it open/closed
     local keybind_down = is_keybind_down()
     -- Hotkey while the vanilla inventory is open: close it and open instead of toggling.
-    -- The frame stamp lets InventoryBags (sharing the same hotkey) do the same this frame.
+    -- The frame stamp lets InventoryBags (sharing the same hotkey) do the same. It's matched within a couple of
+    -- frames, not exactly: this runs in OnWorldPostUpdate and InventoryBags in OnWorldPreUpdate, so the two can
+    -- see the same keypress a frame apart.
     local frame = tostring(GameGetFrameNum())
-    if keybind_down and (inventory_open or GlobalsGetValue("InvHotkey_closed_inventory_frame", "") == frame) then
+    local stamp = tonumber(GlobalsGetValue("InvHotkey_closed_inventory_frame", ""))
+    local inventory_just_closed = stamp and math.abs(GameGetFrameNum() - stamp) <= 2
+    if keybind_down and (inventory_open or inventory_just_closed) then
       local inventory_gui_component = EntityGetFirstComponentIncludingDisabled(player, "InventoryGuiComponent")
       if inventory_gui_component then
         ComponentSetValue2(inventory_gui_component, "mActive", false)

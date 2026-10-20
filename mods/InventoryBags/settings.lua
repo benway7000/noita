@@ -60,6 +60,13 @@ mod_settings =
 		not_setting = true,
 	},
 	{
+		id = "show_button",
+		ui_name = "Show button",
+		ui_description = "Show the on-screen button that opens the bags.\nWhen hidden, open them with the M-Nee hotkey.",
+		value_default = true,
+		scope = MOD_SETTING_SCOPE_RUNTIME,
+	},
+	{
 		id = "sounds_enabled",
 		ui_name = "Enable sounds",
 		ui_description = "Whether sounds should be played for opening/closing the bag or dropping items.",

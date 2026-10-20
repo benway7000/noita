@@ -7,6 +7,7 @@ All code changes are in `init.lua`. Most other files differ from upstream only i
 ## Added
 
 - **Hotkey works while the vanilla inventory is open.** Pressing the toggle hotkey closes the vanilla inventory and opens the bags. Before, it did nothing. The mod shares an `InvHotkey_closed_inventory_frame` frame stamp with AdvancedSpellInventory, so one hotkey bound to both mods opens both.
+- **Show button setting.** Hides the on-screen button, so the bags open only with the M-Nee hotkey. It's on by default, and hiding it also disables button dragging.
 
 ## Changed
 

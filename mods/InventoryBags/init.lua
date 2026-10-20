@@ -980,6 +980,7 @@ sounds_enabled = ModSettingGet("InventoryBags.sounds_enabled") or false
 button_pos_x = ModSettingGet("InventoryBags.pos_x") or 2
 button_pos_y = ModSettingGet("InventoryBags.pos_y") or 22
 button_locked = ModSettingGet("InventoryBags.locked")
+show_button = ModSettingGet("InventoryBags.show_button") ~= false
 show_wand_bag = ModSettingGet("InventoryBags.show_wand_bag")
 show_item_bag = ModSettingGet("InventoryBags.show_item_bag")
 show_tabs = ModSettingGet("InventoryBags.show_tabs")
@@ -1023,6 +1024,7 @@ function OnPausedChanged(is_paused, is_inventory_pause)
 	end
 	sounds_enabled = ModSettingGet("InventoryBags.sounds_enabled") or false
 	button_locked = ModSettingGet("InventoryBags.locked")
+	show_button = ModSettingGet("InventoryBags.show_button") ~= false
 	show_wand_bag = ModSettingGet("InventoryBags.show_wand_bag")
 	show_item_bag = ModSettingGet("InventoryBags.show_item_bag")
 	num_tabs_wands = tonumber(ModSettingGet("InventoryBags.num_tabs_wands")) or 5
@@ -1192,7 +1194,7 @@ function OnWorldPreUpdate()
 
 	local inventory_open = is_inventory_open()
 	-- If button dragging is enabled in the settings and the inventory is not open, make it draggable
-	if not inventory_open and not button_locked then
+	if show_button and not inventory_open and not button_locked then
 		GuiOptionsAddForNextWidget(gui, GUI_OPTION.IsExtraDraggable)
 		GuiOptionsAddForNextWidget(gui, GUI_OPTION.DrawNoHoverAnimation)
 		GuiImageButton(gui, 5318008, button_pos_x, button_pos_y, "", "mods/InventoryBags/files/gui_button_invisible.png")
@@ -1211,9 +1213,13 @@ function OnWorldPreUpdate()
 	-- Toggle it open/closed
 	local toggle_pressed = _get_binding_pressed("toggle")
 	-- Hotkey while the vanilla inventory is open: close it and open the bags instead of toggling.
-	-- The frame stamp lets AdvancedSpellInventory (sharing the same hotkey) do the same this frame.
+	-- The frame stamp lets AdvancedSpellInventory (sharing the same hotkey) do the same. It's matched within a couple
+	-- of frames, not exactly: this runs in OnWorldPreUpdate and ASI in OnWorldPostUpdate, so the two can see the
+	-- same keypress a frame apart.
 	local frame = tostring(GameGetFrameNum())
-	if toggle_pressed and (inventory_open or GlobalsGetValue("InvHotkey_closed_inventory_frame", "") == frame) then
+	local stamp = tonumber(GlobalsGetValue("InvHotkey_closed_inventory_frame", ""))
+	local inventory_just_closed = stamp and math.abs(GameGetFrameNum() - stamp) <= 2
+	if toggle_pressed and (inventory_open or inventory_just_closed) then
 		local inventory_gui_component = EntityGetFirstComponentIncludingDisabled(player, "InventoryGuiComponent")
 		if inventory_gui_component then
 			ComponentSetValue2(inventory_gui_component, "mActive", false)
@@ -1226,7 +1232,7 @@ function OnWorldPreUpdate()
 		end
 		open = true
 		GlobalsSetValue("InventoryBags_is_open", 1)
-	elseif not inventory_open and (GuiImageButton(gui, new_id(), button_pos_x, button_pos_y, "", "mods/InventoryBags/files/gui_button.png")
+	elseif not inventory_open and ((show_button and GuiImageButton(gui, new_id(), button_pos_x, button_pos_y, "", "mods/InventoryBags/files/gui_button.png"))
 		or toggle_pressed) then
 		open = not open
 		if sounds_enabled then

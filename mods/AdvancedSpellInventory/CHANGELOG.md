@@ -26,6 +26,7 @@ These are the changes in this fork compared to upstream [TheHorscht/AdvancedSpel
 
 ## Fixed
 
+- `AdvancedSpellInventory_is_open` now stays accurate. It's reset to closed when the player spawns, and set to closed when "opening the inventory closes the spell inventory" closes the panel. Before, a stale `1` could make WandBlueprints think the panel was open.
 - Spells taken out of storage are switched to their in-inventory state explicitly. Before, they relied on `Inventory2Component`, which is disabled while the cursor is over the panel.
 - The hidden text input's own cursor no longer shows up at the mouse position.
 - Widget IDs no longer change when the filter field gains or loses focus, or when the cursor blinks. Changing IDs made Noita's GUI jitter the following widgets.
