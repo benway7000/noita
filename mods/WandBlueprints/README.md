@@ -16,7 +16,9 @@ Open the panel with the on-screen button or the **Toggle panel** hotkey. You can
 - **New from held wand** copies the held wand's spells. Always-cast spells and trailing empty slots are left out.
 - **New empty** starts from 10 empty slots.
 
-New blueprints go into the category of the open tab. The tabs on the left are All, Combat, Digging, Travel, Healing and Other, and each tab's tooltip shows how many blueprints it holds. Hover a blueprint's icon or name to see its note and spells.
+New blueprints go into the category of the open tab. The tabs on the left are All, Combat, Digging, Travel, Healing and Other, and each tab's tooltip shows how many blueprints it holds. Under each name is a strip of tiny icons showing the blueprint's spells, so you can tell blueprints apart at a glance. Hover a blueprint's icon, name or spell strip to see its note and spells at full size.
+
+The list shows 8 blueprints at a time. To scroll it, use the mouse wheel over the panel, drag the scrollbar, or click the scrollbar's track to jump 8 blueprints. While the cursor is over the panel, the mouse wheel doesn't switch wands.
 
 Each blueprint has these buttons:
 

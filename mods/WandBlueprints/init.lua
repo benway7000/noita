@@ -18,8 +18,12 @@ ModLuaFileAppend("mods/mnee/bindings.lua", "mods/WandBlueprints/files/mnee.lua")
 
 local MOD_ID = "WandBlueprints"
 local NUM_HOTKEYS = 10
-local ROW_HEIGHT = 24
-local ROWS_PER_PAGE = 9
+-- Each row shows the blueprint's spells as a strip of tiny icons under its name. A spell icon with its background
+-- is 20px at scale 1.
+local MINI_SCALE = 0.25
+local MINI_SIZE = 20 * MINI_SCALE
+local ROW_HEIGHT = 24 + MINI_SIZE + 1
+local VISIBLE_ROWS = 8
 local CONFIRM_FRAMES = 180
 
 local gui
@@ -29,7 +33,15 @@ local frame_player_spawned
 local ready = false
 local mnee_ready = false
 local open = false
-local list_page = 0
+-- The list scrolls by whole rows, scroll_row is the first visible one (0-based)
+local scroll_row = 0
+local dragging_scrollbar = false
+local scrollbar_grab_offset = 0
+-- While the panel is hovered the mouse wheel scrolls the list, so wand switching (Inventory2Component) is off
+local panel_hovered = false
+local inventory_enabled_last_frame = true
+-- Frame of the last change to the held wand. The inventory is kept on for a few frames after, to pick it up.
+local wand_changed_frame = -100
 local active_category = ModSettingGet("WandBlueprints.active_category") or "all"
 if active_category ~= "all" and storage.get_category(active_category).id ~= active_category then
   active_category = "all"
@@ -115,6 +127,7 @@ local function report_apply(bp_name, result, note)
   if note then
     table.insert(lines, note)
   end
+  wand_changed_frame = GameGetFrameNum()
   ui.play_sound("item_move_success")
   notify(lines)
 end
@@ -221,7 +234,7 @@ end
 local function set_active_category(id)
   if id ~= active_category then
     active_category = id
-    list_page = 0
+    scroll_row = 0
     confirm = nil
     ModSettingSet(MOD_ID .. ".active_category", id)
   end
@@ -238,7 +251,8 @@ local function render_tabs(new_id, panel_x, panel_y)
   for i, bp in ipairs(blueprints) do
     counts[bp.category] = (counts[bp.category] or 0) + 1
   end
-  local tab_x = panel_x - 13
+  -- Same placement as Inventory Bags: the whole 12px tab sits clear of the panel border, so its icon does too
+  local tab_x = panel_x - 16
   for i, tab in ipairs(tabs) do
     local tab_y = panel_y + 5 + (i - 1) * 17
     local active = tab.id == active_category
@@ -254,11 +268,11 @@ local function render_tabs(new_id, panel_x, panel_y)
     if tab.sprite then
       local w, h = GuiGetImageDimensions(gui, tab.sprite, tab.sprite_scale)
       GuiZSetForNextWidget(gui, 19.5)
-      GuiImage(gui, new_id(), tab_x + 3 + (8 - w) / 2, tab_y + 4 + (8 - h) / 2, tab.sprite, alpha, tab.sprite_scale, tab.sprite_scale)
+      GuiImage(gui, new_id(), tab_x + 8 - w / 2, tab_y + 4 + (8 - h) / 2, tab.sprite, alpha, tab.sprite_scale, tab.sprite_scale)
     else
       GuiZSetForNextWidget(gui, 19.5)
       GuiColorSetForNextWidget(gui, 1, 1, 1, alpha)
-      GuiText(gui, tab_x + 5, tab_y + 3, "?")
+      GuiText(gui, tab_x + 6, tab_y + 3, "?")
     end
   end
 end
@@ -270,13 +284,20 @@ local function render_list(new_id)
   local panel_y = 46
   local x, y = panel_x + 6, panel_y + 5
   local visible_indices = get_visible_indices()
-  local num_pages = math.max(1, math.ceil(#visible_indices / ROWS_PER_PAGE))
-  list_page = math.max(0, math.min(list_page, num_pages - 1))
+  local max_scroll = math.max(0, #visible_indices - VISIBLE_ROWS)
   local list_y = y + 14
-  local footer_y = list_y + ROWS_PER_PAGE * ROW_HEIGHT + 2
-  local status_y = footer_y + 14
+  local list_h = VISIBLE_ROWS * ROW_HEIGHT
+  local status_y = list_y + list_h + 2
   local panel_h = status_y + #status_lines * 10 + 2 - panel_y
-  ui.panel(gui, new_id, panel_x, panel_y, panel_w, panel_h)
+  panel_hovered = ui.panel(gui, new_id, panel_x, panel_y, panel_w, panel_h)
+  if panel_hovered and not dragging_scrollbar then
+    if InputIsMouseButtonJustDown(Mouse_wheel_up) then
+      scroll_row = scroll_row - 1
+    elseif InputIsMouseButtonJustDown(Mouse_wheel_down) then
+      scroll_row = scroll_row + 1
+    end
+  end
+  scroll_row = math.max(0, math.min(scroll_row, max_scroll))
   render_tabs(new_id, panel_x, panel_y)
   -- New blueprints go into the category of the open tab
   local new_category = active_category ~= "all" and active_category or nil
@@ -313,8 +334,8 @@ local function render_list(new_id)
   end
 
   local hovered_bp, hovered_y
-  for row = 1, ROWS_PER_PAGE do
-    local index = visible_indices[list_page * ROWS_PER_PAGE + row]
+  for row = 1, VISIBLE_ROWS do
+    local index = visible_indices[scroll_row + row]
     local bp = index and blueprints[index]
     if not bp then break end
     local ry = list_y + (row - 1) * ROW_HEIGHT
@@ -329,18 +350,43 @@ local function render_list(new_id)
 
     local hotkey = hotkey_text(bp)
     local hotkey_w = hotkey ~= "" and GuiGetTextDimensions(gui, hotkey) or 0
-    GuiText(gui, x + 23, ry, ui.fit_text(gui, bp.name, panel_w - 36 - hotkey_w))
+    -- Right edge kept clear for the scrollbar
+    GuiText(gui, x + 23, ry, ui.fit_text(gui, bp.name, panel_w - 42 - hotkey_w))
     local _, _, name_hovered = GuiGetPreviousWidgetInfo(gui)
     if hotkey ~= "" then
       GuiColorSetForNextWidget(gui, 0.6, 0.8, 1, 1)
-      GuiText(gui, x + panel_w - 12 - hotkey_w, ry, hotkey)
+      GuiText(gui, x + panel_w - 18 - hotkey_w, ry, hotkey)
     end
-    if icon_hovered or name_hovered then
+    -- Spell strip. What doesn't fit becomes "+N", hovering it shows the full preview.
+    local strip_x, strip_y = x + 23, ry + 10
+    local strip_w = panel_w - 42
+    local fits = math.floor(strip_w / MINI_SIZE)
+    if #bp.slots > fits then
+      fits = math.floor((strip_w - GuiGetTextDimensions(gui, "+" .. #bp.slots)) / MINI_SIZE)
+    end
+    for i = 1, math.min(#bp.slots, fits) do
+      local action_id = bp.slots[i]
+      local ix = strip_x + (i - 1) * MINI_SIZE
+      if action_id ~= "" then
+        local slot_action = action_lookup[action_id]
+        ui.spell_icon(gui, new_id, ix, strip_y, action_id, slot_action and slot_action.sprite or "data/ui_gfx/gun_actions/unidentified.png", MINI_SCALE, 1)
+      else
+        GuiZSetForNextWidget(gui, 1)
+        GuiImage(gui, new_id(), ix, strip_y, "data/ui_gfx/inventory/full_inventory_box.png", 0.6, MINI_SCALE, MINI_SCALE)
+      end
+    end
+    if #bp.slots > fits then
+      GuiColorSetForNextWidget(gui, 0.7, 0.7, 0.7, 1)
+      GuiText(gui, strip_x + fits * MINI_SIZE + 1, strip_y - 2, "+" .. (#bp.slots - fits))
+    end
+    local strip_hovered = ui.is_mouse_inside(strip_x, strip_y, math.min(#bp.slots, fits) * MINI_SIZE, MINI_SIZE)
+
+    if icon_hovered or name_hovered or strip_hovered then
       hovered_bp, hovered_y = bp, ry
     end
 
     local bx = x + 21
-    local by = ry + 10
+    local by = strip_y + MINI_SIZE + 1
     local clicked, _, w = ui.button(gui, new_id, bx, by, "Apply")
     if clicked then
       confirm = nil
@@ -392,17 +438,41 @@ local function render_list(new_id)
     render_blueprint_preview(new_id, hovered_bp, panel_x - 14, hovered_y)
   end
 
-  -- Footer: pages
-  if num_pages > 1 then
-    local fx = x
-    local clicked, _, w = ui.button(gui, new_id, fx, footer_y, "<")
-    if clicked and list_page > 0 then list_page = list_page - 1 end
-    fx = fx + w
-    local text = ("%d/%d"):format(list_page + 1, num_pages)
-    GuiText(gui, fx + 1, footer_y + 1, text)
-    fx = fx + GuiGetTextDimensions(gui, text) + 4
-    local clicked = ui.button(gui, new_id, fx, footer_y, ">")
-    if clicked and list_page < num_pages - 1 then list_page = list_page + 1 end
+  -- Scrollbar along the right edge of the list: drag the thumb, or click the track to move by a screen
+  if max_scroll > 0 then
+    local track_x = panel_x + panel_w - 5
+    local track_y = list_y + 1
+    local track_w = 3
+    local track_h = list_h - 4
+    local thumb_h = math.min(track_h, math.max(6, math.floor(track_h * VISIBLE_ROWS / #visible_indices)))
+    local thumb_travel = track_h - thumb_h
+    local mx, my = ui.mouse_pos()
+    -- Includes the borders of the nine piece
+    local over_track = ui.is_mouse_inside(track_x - 4, track_y - 4, track_w + 8, track_h + 8)
+    local thumb_y = track_y + thumb_travel * scroll_row / max_scroll
+    local over_thumb = over_track and my >= thumb_y - 1 and my <= thumb_y + thumb_h + 1
+    if over_track and InputIsMouseButtonJustDown(Mouse_left) then
+      if over_thumb then
+        dragging_scrollbar = true
+        scrollbar_grab_offset = my - thumb_y
+      elseif my < thumb_y then
+        scroll_row = math.max(0, scroll_row - VISIBLE_ROWS)
+      else
+        scroll_row = math.min(max_scroll, scroll_row + VISIBLE_ROWS)
+      end
+    end
+    if dragging_scrollbar and thumb_travel > 0 then
+      local fraction = (my - scrollbar_grab_offset - track_y) / thumb_travel
+      scroll_row = math.max(0, math.min(max_scroll, math.floor(fraction * max_scroll + 0.5)))
+    end
+    thumb_y = track_y + thumb_travel * scroll_row / max_scroll
+    GuiZSetForNextWidget(gui, 19)
+    GuiImageNinePiece(gui, new_id(), track_x, track_y, track_w, track_h, 1, "mods/WandBlueprints/files/container_9piece.png")
+    GuiTooltip(gui, ("Blueprints %d-%d of %d"):format(scroll_row + 1, scroll_row + VISIBLE_ROWS, #visible_indices), "Scroll with the mouse wheel while hovering the panel")
+    local brightness = (over_thumb or dragging_scrollbar) and 1 or 0.7
+    GuiZSetForNextWidget(gui, 18)
+    GuiColorSetForNextWidget(gui, brightness, brightness, brightness, 1)
+    GuiImage(gui, new_id(), track_x, thumb_y, "data/debug/whitebox.png", 1, track_w / 20, thumb_h / 20)
   end
 
   for i, line in ipairs(status_lines) do
@@ -422,13 +492,17 @@ local function handle_editor_result(result)
       table.insert(blueprints, bp)
       index = #blueprints
     end
-    -- Show the saved blueprint: switch to its tab if the open one doesn't contain it, and to its page
+    -- Show the saved blueprint: switch to its tab if the open one doesn't contain it, and scroll it into view
     if active_category ~= "all" and active_category ~= bp.category then
       set_active_category(bp.category)
     end
     for position, i in ipairs(get_visible_indices()) do
       if i == index then
-        list_page = math.floor((position - 1) / ROWS_PER_PAGE)
+        if position - 1 < scroll_row then
+          scroll_row = position - 1
+        elseif position > scroll_row + VISIBLE_ROWS then
+          scroll_row = position - VISIBLE_ROWS
+        end
       end
     end
     claim_hotkey(bp)
@@ -459,6 +533,19 @@ local function update_typing_lock(player, typing)
     end
   end
   typing_last_frame = typing
+end
+
+-- Same as Advanced Spell Inventory: while the list is hovered, turn off the inventory so the mouse wheel scrolls the
+-- list instead of switching wands. It stays on for a few frames after an apply, so the wand change gets picked up.
+local function update_inventory_lock(player)
+  local inventory_enabled = not (panel_hovered or dragging_scrollbar) or GameGetFrameNum() - wand_changed_frame < 3
+  if inventory_enabled ~= inventory_enabled_last_frame then
+    local inventory_2_comp = EntityGetFirstComponentIncludingDisabled(player, "Inventory2Component")
+    if inventory_2_comp then
+      EntitySetComponentIsEnabled(player, inventory_2_comp, inventory_enabled)
+    end
+  end
+  inventory_enabled_last_frame = inventory_enabled
 end
 
 local function handle_hotkeys()
@@ -557,8 +644,13 @@ function OnWorldPostUpdate()
     end
   end
 
+  panel_hovered = false
+  if not InputIsMouseButtonDown(Mouse_left) then
+    dragging_scrollbar = false
+  end
   if visible then
     if editor.is_open() then
+      dragging_scrollbar = false
       handle_editor_result(editor.update(gui, new_id, notify))
     else
       render_list(new_id)
@@ -567,6 +659,8 @@ function OnWorldPostUpdate()
 
   if not visible then
     ui.focused_input = nil
+    dragging_scrollbar = false
   end
   update_typing_lock(player, visible and editor.is_typing())
+  update_inventory_lock(player)
 end

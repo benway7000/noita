@@ -2,6 +2,18 @@
 
 See [README.md](README.md) for what the mod does and how to use it.
 
+## 2026-10-20
+
+### Changed
+
+- **The blueprint list scrolls instead of using pages.** It scrolls one row at a time with the mouse wheel over the panel, and has a scrollbar you can drag or click to jump a screen. The page footer is gone. While the cursor is over the panel, wand switching is turned off so the mouse wheel scrolls the list, the same as Advanced Spell Inventory's storage. Wand switching comes back on for a few frames after each apply, so the game picks up the changed wand.
+- A saved blueprint is scrolled into view instead of jumping to its page.
+- **Each row shows the blueprint's spells as a strip of tiny icons** (1/4 size, 5px) under its name. Spells that don't fit show as "+N", and hovering the strip opens the full preview. The rows are taller, so the list shows 8 blueprints at a time instead of 9.
+
+### Fixed
+
+- The category tabs on the left of the panel are drawn fully outside the panel border, like Inventory Bags' tabs. Before, the panel covered their right edge while their icons were drawn on top of it.
+
 ## 2026-10-19
 
 ### Changed
