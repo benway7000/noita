@@ -55,12 +55,28 @@ Spells the blueprint doesn't use come off the wand. They go into Advanced Spell 
 
 If the blueprint has more slots than the wand, empty slots are removed from the right until it fits. A message reports any spells that couldn't be found or didn't fit, such as "Spark Bolt x2".
 
+### Which wands match a blueprint
+
+About twice a second, the mod checks your 4 wands. A wand matches a blueprint when it holds exactly the blueprint's spells in the same slots, ignoring trailing empty slots. It also matches the layout Apply produces when it removes empty slots to fit a smaller wand. It doesn't matter how the spells got there: this mod, a Holy Mountain, or another mod. Blueprints without spells never match.
+
+You can see matches in four places, and each one except the list markers has a setting to turn it off:
+
+- **Wand name:** a matching wand is named after its blueprint, so the name shows in the game's own wand tooltip and inventory. The wand's original name is kept on the wand and comes back once its spells stop matching.
+- **Blueprint list:** a blueprint's row says "Wand 1, 3" when those wands match it.
+- **Wands panel:** left of the blueprint list, it shows your 4 wands with their spells and the blueprint each one matches. Click a matching wand to jump to its blueprint, or a non-matching one to save it as a new blueprint.
+- **Hotbar:** each matching wand's slot gets a small badge with the key the blueprint's hotkey is bound to in M-Nee (such as "u"), or the blueprint's icon if its hotkey isn't bound. The held wand's blueprint name shows under the hotbar. The hotbar marks hide while the full inventory is open, and the name hides while Inventory Bags is open.
+
+Wands stored in Inventory Bags or lying on the ground aren't checked, so a stored or dropped wand keeps whatever name it had. They're checked again once they're back in your hotbar.
+
 ## Settings
 
 | Setting | Default | |
 |---|---|---|
 | Show button | on | Shows the on-screen button that opens the panel |
 | Applying blueprints requires wand tinkering | on | Turn this off to apply blueprints anywhere |
+| Name wands after their blueprint | on | Matching wands show the blueprint's name in the game's tooltip |
+| Show wands panel | on | Shows your 4 wands next to the blueprint list |
+| Show blueprints on the hotbar | on | Hotbar badges, and the held wand's blueprint name |
 | Reset button position | — | Moves the button back to where it started |
 
 ## Hotkeys (M-Nee)

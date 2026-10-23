@@ -1137,6 +1137,21 @@ local function process_api_request()
   GlobalsSetValue(api_response_key, id .. "|" .. table.concat(missing, ","))
 end
 
+-- While typing into the filter, M-Nee's service mode mutes every mod's M-Nee bindings (this mod's toggle, Cartographer's
+-- map key, WandBlueprints' hotkeys...), the same thing WandBlueprints does for its text fields
+-- Re-added every frame while typing, in case another mod lifted it (WandBlueprints does when its own typing ends),
+-- but only removed when typing here ends, so M-Nee's own use of it isn't undone
+local typing_last_frame = false
+local function update_mnee_typing_lock(typing)
+  if not (mnee and mnee.SERV_MODE) then return end
+  if typing and not GameHasFlagRun(mnee.SERV_MODE) then
+    GameAddFlagRun(mnee.SERV_MODE)
+  elseif not typing and typing_last_frame then
+    GameRemoveFlagRun(mnee.SERV_MODE)
+  end
+  typing_last_frame = typing
+end
+
 function OnWorldPostUpdate()
   if opening_inv_closes_spell_inv and GameIsInventoryOpen() then
     open = false
@@ -1482,4 +1497,6 @@ function OnWorldPostUpdate()
     end
     inventory_enabled_last_frame = inventory_enabled
   end
+  -- Outside the player check, so a polymorph or death mid-typing still lifts the mute
+  update_mnee_typing_lock(visible and input_focused and player ~= nil)
 end

@@ -2,6 +2,17 @@
 
 See [README.md](README.md) for what the mod does and how to use it.
 
+## 2026-10-23
+
+### Added
+
+- **See which of your wands match a blueprint.** The mod checks your 4 wands about twice a second, whichever way their spells were changed. A wand matches when it holds exactly a blueprint's spells, or the layout Apply produces on a smaller wand. Matches show in four places:
+  - **Wand names:** a matching wand is named after its blueprint, so the name appears in the game's own tooltip and inventory. The original name is kept in a `VariableStorageComponent` on the wand and restored when it stops matching. Setting: "Name wands after their blueprint".
+  - **Blueprint list:** rows say "Wand 1, 3" for the wands that match them.
+  - **Wands panel:** left of the list, it shows your 4 wands, their spells and their matching blueprint. Click a matching wand to jump to its blueprint, which flashes briefly, or a non-matching one to save it as a new blueprint. Setting: "Show wands panel".
+  - **Hotbar:** each matching wand's slot gets a badge: the key the blueprint's hotkey is bound to in M-Nee (such as "u"), or its icon if the hotkey isn't bound, and the held wand's blueprint name shows under the hotbar. Positions come from the game's layout values (`UI_BARS_POS_X/Y`, `INVENTORY_ICON_SIZE`). Setting: "Show blueprints on the hotbar".
+- While the wands panel is shown, the hover preview of a blueprint opens below it.
+
 ## 2026-10-20
 
 ### Changed
@@ -12,6 +23,8 @@ See [README.md](README.md) for what the mod does and how to use it.
 
 ### Fixed
 
+- The typing mute (M-Nee service mode) is re-applied every frame while a field has focus, so another mod ending its own typing can't lift it early, for example when you click from Advanced Spell Inventory's filter straight into a blueprint field.
+- If the player disappears while a text field has focus (polymorph, death), the field loses focus and the typing mute is lifted. Before, M-Nee stayed muted until the player came back.
 - The category tabs on the left of the panel are drawn fully outside the panel border, like Inventory Bags' tabs. Before, the panel covered their right edge while their icons were drawn on top of it.
 
 ## 2026-10-19

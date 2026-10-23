@@ -13,6 +13,7 @@ local storage = dofile_once("mods/WandBlueprints/files/storage.lua")
 local apply = dofile_once("mods/WandBlueprints/files/apply.lua")
 local ui = dofile_once("mods/WandBlueprints/files/ui.lua")
 local editor = dofile_once("mods/WandBlueprints/files/editor.lua")
+local matcher = dofile_once("mods/WandBlueprints/files/matcher.lua")
 
 ModLuaFileAppend("mods/mnee/bindings.lua", "mods/WandBlueprints/files/mnee.lua")
 
@@ -25,6 +26,10 @@ local MINI_SIZE = 20 * MINI_SCALE
 local ROW_HEIGHT = 24 + MINI_SIZE + 1
 local VISIBLE_ROWS = 8
 local CONFIRM_FRAMES = 180
+-- A blueprint row flashes for this long after the wands panel scrolled to it
+local HIGHLIGHT_FRAMES = 60
+local WANDS_PANEL_W = 160
+local WANDS_ROW_HEIGHT = 22
 
 local gui
 local blueprints = storage.load()
@@ -53,14 +58,25 @@ local pending_apply -- An apply waiting for Advanced Spell Inventory: { bp_name,
 local dragging_button = false
 local controls_enabled_last_frame = true
 local typing_last_frame = false
+local highlight -- { index, frame } of the row the wands panel scrolled to
 
 local show_button = ModSettingGet(MOD_ID .. ".show_button")
 local require_tinkering = ModSettingGet(MOD_ID .. ".require_tinkering")
 local button_pos_x = tonumber(ModSettingGet(MOD_ID .. ".button_pos_x")) or 182
 local button_pos_y = tonumber(ModSettingGet(MOD_ID .. ".button_pos_y")) or 41
+local rename_wands, show_wands_panel, show_hotbar_info
+
+local function read_display_settings()
+  rename_wands = ModSettingGet(MOD_ID .. ".rename_wands") ~= false
+  show_wands_panel = ModSettingGet(MOD_ID .. ".show_wands_panel") ~= false
+  show_hotbar_info = ModSettingGet(MOD_ID .. ".show_hotbar_info") ~= false
+end
+read_display_settings()
 
 function OnPausedChanged(is_paused, is_main_menu)
   if not is_paused then
+    read_display_settings()
+    matcher.mark_dirty()
     show_button = ModSettingGet(MOD_ID .. ".show_button")
     require_tinkering = ModSettingGet(MOD_ID .. ".require_tinkering")
     button_pos_x = tonumber(ModSettingGet(MOD_ID .. ".button_pos_x")) or 182
@@ -92,6 +108,7 @@ end
 
 local function save_blueprints()
   storage.save(blueprints)
+  matcher.mark_dirty()
 end
 
 -- Only one blueprint can own a hotkey, the one saved last wins
@@ -128,6 +145,7 @@ local function report_apply(bp_name, result, note)
     table.insert(lines, note)
   end
   wand_changed_frame = GameGetFrameNum()
+  matcher.mark_dirty()
   ui.play_sound("item_move_success")
   notify(lines)
 end
@@ -187,7 +205,16 @@ local function hotkey_text(bp)
   return "[" .. bp.hotkey .. (keys and (": " .. keys) or "") .. "]"
 end
 
--- Shows the note and spells of a hovered blueprint next to the panel
+-- The key a blueprint's hotkey is bound to in M-Nee, like "u" (lowercase, combos as "lctrl-u"), or nil if it has no
+-- hotkey, the hotkey is unbound or M-Nee isn't there
+local function hotkey_key_name(bp)
+  if bp.hotkey == 0 or not mnee_ready then return nil end
+  local ok, keys = pcall(mnee.get_binding_keys, MOD_ID, "hotkey_" .. bp.hotkey, true)
+  if not ok or not keys or keys == "" or keys == string.lower(GameTextGet("$mnee_nil")) then return nil end
+  return keys
+end
+
+-- Shows the note and spells of a hovered blueprint, its right edge at right_x - 10
 local function render_blueprint_preview(new_id, bp, right_x, y)
   local cols = 10
   local icon_size = 16
@@ -216,6 +243,32 @@ local function render_blueprint_preview(new_id, bp, right_x, y)
   end
 end
 
+-- A row of tiny spell icons, empty slots as faint boxes. What doesn't fit into max_width becomes "+N".
+-- Returns the width of the icons drawn.
+local function draw_spell_strip(new_id, slots, x, y, max_width)
+  local fits = math.floor(max_width / MINI_SIZE)
+  if #slots > fits then
+    fits = math.floor((max_width - GuiGetTextDimensions(gui, "+" .. #slots)) / MINI_SIZE)
+  end
+  local count = math.min(#slots, fits)
+  for i = 1, count do
+    local action_id = slots[i]
+    local ix = x + (i - 1) * MINI_SIZE
+    if action_id ~= "" then
+      local action = action_lookup[action_id]
+      ui.spell_icon(gui, new_id, ix, y, action_id, action and action.sprite or "data/ui_gfx/gun_actions/unidentified.png", MINI_SCALE, 1)
+    else
+      GuiZSetForNextWidget(gui, 1)
+      GuiImage(gui, new_id(), ix, y, "data/ui_gfx/inventory/full_inventory_box.png", 0.6, MINI_SCALE, MINI_SCALE)
+    end
+  end
+  if #slots > fits then
+    GuiColorSetForNextWidget(gui, 0.7, 0.7, 0.7, 1)
+    GuiText(gui, x + count * MINI_SIZE + 1, y - 2, "+" .. (#slots - count))
+  end
+  return count * MINI_SIZE
+end
+
 local function is_confirming(action, index)
   return confirm and confirm.action == action and confirm.index == index and GameGetFrameNum() - confirm.frame < CONFIRM_FRAMES
 end
@@ -237,6 +290,24 @@ local function set_active_category(id)
     scroll_row = 0
     confirm = nil
     ModSettingSet(MOD_ID .. ".active_category", id)
+  end
+end
+
+-- Switches to the blueprint's tab if the open one doesn't contain it, and scrolls it into view
+local function show_blueprint(index)
+  local bp = blueprints[index]
+  if not bp then return end
+  if active_category ~= "all" and active_category ~= bp.category then
+    set_active_category(bp.category)
+  end
+  for position, i in ipairs(get_visible_indices()) do
+    if i == index then
+      if position - 1 < scroll_row then
+        scroll_row = position - 1
+      elseif position > scroll_row + VISIBLE_ROWS then
+        scroll_row = position - VISIBLE_ROWS
+      end
+    end
   end
 end
 
@@ -277,6 +348,70 @@ local function render_tabs(new_id, panel_x, panel_y)
   end
 end
 
+local function index_of_blueprint(bp)
+  for i, other in ipairs(blueprints) do
+    if other == bp then return i end
+  end
+end
+
+-- The player's 4 wands with their spells and the blueprint each one matches, left of the blueprint panel. Clicking a
+-- wand scrolls the list to its blueprint, or makes a new blueprint from it if it matches none.
+-- Returns whether it's hovered, its x and its bottom edge.
+local function render_wands_panel(new_id, right_x, y, new_category)
+  local w = WANDS_PANEL_W
+  local x = right_x - w
+  local h = 12 + 4 * WANDS_ROW_HEIGHT
+  local hovered = ui.panel(gui, new_id, x, y, w, h)
+  GuiColorSetForNextWidget(gui, 0.8, 0.8, 0.8, 1)
+  GuiText(gui, x + 3, y + 1, "Wands")
+  GuiColorSetForNextWidget(gui, 0.5, 0.5, 0.5, 1)
+  GuiText(gui, x + 34, y + 1, ui.fit_text(gui, "click: show / save as new", w - 36))
+  for slot = 1, 4 do
+    local ry = y + 12 + (slot - 1) * WANDS_ROW_HEIGHT
+    local info = matcher.wands[slot]
+    GuiColorSetForNextWidget(gui, 0.6, 0.6, 0.6, 1)
+    GuiText(gui, x + 3, ry + 5, tostring(slot))
+    if info then
+      if info.sprite then
+        local sprite_w, sprite_h = GuiGetImageDimensions(gui, info.sprite, 1)
+        local scale = math.min(1, 18 / math.max(sprite_w, 1), 10 / math.max(sprite_h, 1))
+        GuiZSetForNextWidget(gui, 1)
+        GuiImage(gui, new_id(), x + 10, ry + 5 + (10 - sprite_h * scale) / 2, info.sprite, 1, scale, scale)
+      end
+      if info.bp then
+        GuiColorSetForNextWidget(gui, 0.6, 1, 0.6, 1)
+        GuiText(gui, x + 31, ry, ui.fit_text(gui, info.bp.name, w - 34))
+      else
+        GuiColorSetForNextWidget(gui, 0.6, 0.6, 0.6, 1)
+        GuiText(gui, x + 31, ry, "No blueprint")
+      end
+      -- Every slot of the wand, so its capacity shows too
+      local slots = {}
+      for i = 1, info.capacity do slots[i] = info.slots[i] or "" end
+      draw_spell_strip(new_id, slots, x + 31, ry + 11, w - 34)
+
+      if ui.is_mouse_inside(x, ry - 1, w, WANDS_ROW_HEIGHT) then
+        GuiZSetForNextWidget(gui, 19.9)
+        GuiImage(gui, new_id(), x - 2, ry - 1, "data/debug/whitebox.png", 0.08, (w + 4) / 20, WANDS_ROW_HEIGHT / 20)
+        if InputIsMouseButtonJustDown(Mouse_left) then
+          local index = info.bp and index_of_blueprint(info.bp)
+          if index then
+            show_blueprint(index)
+            highlight = { index = index, frame = GameGetFrameNum() }
+          else
+            set_status({})
+            editor.open(gui, storage.new_blueprint(new_blueprint_name(), info.slots, new_category), nil)
+          end
+        end
+      end
+    else
+      GuiColorSetForNextWidget(gui, 0.45, 0.45, 0.45, 1)
+      GuiText(gui, x + 31, ry + 5, "(no wand)")
+    end
+  end
+  return hovered, x, y + h
+end
+
 local function render_list(new_id)
   local screen_width = GuiGetScreenDimensions(gui)
   local panel_w = 252
@@ -301,6 +436,13 @@ local function render_list(new_id)
   render_tabs(new_id, panel_x, panel_y)
   -- New blueprints go into the category of the open tab
   local new_category = active_category ~= "all" and active_category or nil
+  -- Left of the tabs, which take up 16px plus their border, with some room to breathe
+  local wands_x, wands_bottom
+  if show_wands_panel then
+    local wands_hovered
+    wands_hovered, wands_x, wands_bottom = render_wands_panel(new_id, panel_x - 30, panel_y, new_category)
+    panel_hovered = panel_hovered or wands_hovered
+  end
 
   -- Header
   local bx = x
@@ -357,29 +499,10 @@ local function render_list(new_id)
       GuiColorSetForNextWidget(gui, 0.6, 0.8, 1, 1)
       GuiText(gui, x + panel_w - 18 - hotkey_w, ry, hotkey)
     end
-    -- Spell strip. What doesn't fit becomes "+N", hovering it shows the full preview.
+    -- Spell strip, hovering it shows the full preview
     local strip_x, strip_y = x + 23, ry + 10
-    local strip_w = panel_w - 42
-    local fits = math.floor(strip_w / MINI_SIZE)
-    if #bp.slots > fits then
-      fits = math.floor((strip_w - GuiGetTextDimensions(gui, "+" .. #bp.slots)) / MINI_SIZE)
-    end
-    for i = 1, math.min(#bp.slots, fits) do
-      local action_id = bp.slots[i]
-      local ix = strip_x + (i - 1) * MINI_SIZE
-      if action_id ~= "" then
-        local slot_action = action_lookup[action_id]
-        ui.spell_icon(gui, new_id, ix, strip_y, action_id, slot_action and slot_action.sprite or "data/ui_gfx/gun_actions/unidentified.png", MINI_SCALE, 1)
-      else
-        GuiZSetForNextWidget(gui, 1)
-        GuiImage(gui, new_id(), ix, strip_y, "data/ui_gfx/inventory/full_inventory_box.png", 0.6, MINI_SCALE, MINI_SCALE)
-      end
-    end
-    if #bp.slots > fits then
-      GuiColorSetForNextWidget(gui, 0.7, 0.7, 0.7, 1)
-      GuiText(gui, strip_x + fits * MINI_SIZE + 1, strip_y - 2, "+" .. (#bp.slots - fits))
-    end
-    local strip_hovered = ui.is_mouse_inside(strip_x, strip_y, math.min(#bp.slots, fits) * MINI_SIZE, MINI_SIZE)
+    local strip_drawn_w = draw_spell_strip(new_id, bp.slots, strip_x, strip_y, panel_w - 42)
+    local strip_hovered = ui.is_mouse_inside(strip_x, strip_y, strip_drawn_w, MINI_SIZE)
 
     if icon_hovered or name_hovered or strip_hovered then
       hovered_bp, hovered_y = bp, ry
@@ -420,7 +543,7 @@ local function render_list(new_id)
     end
     bx = bx + w
     local deleting = is_confirming("delete", index)
-    local clicked = ui.button(gui, new_id, bx, by, deleting and "Sure?" or "Delete", deleting)
+    local clicked, _, w = ui.button(gui, new_id, bx, by, deleting and "Sure?" or "Delete", deleting)
     GuiTooltip(gui, "Delete this blueprint", "Click twice to confirm")
     if clicked then
       if deleting then
@@ -432,10 +555,28 @@ local function render_list(new_id)
         confirm = { action = "delete", index = index, frame = GameGetFrameNum() }
       end
     end
+    bx = bx + w
+
+    -- Which of the player's wands hold this blueprint
+    local on_wands = matcher.by_blueprint[bp]
+    if on_wands then
+      GuiColorSetForNextWidget(gui, 0.6, 1, 0.6, 1)
+      GuiText(gui, bx + 4, by + 1, ui.fit_text(gui, (#on_wands == 1 and "Wand " or "Wands ") .. table.concat(on_wands, ", "), x + panel_w - 18 - bx - 4))
+    end
+    if highlight and highlight.index == index and GameGetFrameNum() - highlight.frame < HIGHLIGHT_FRAMES then
+      local alpha = 0.25 * (1 - (GameGetFrameNum() - highlight.frame) / HIGHLIGHT_FRAMES)
+      GuiZSetForNextWidget(gui, 19.9)
+      GuiImage(gui, new_id(), x - 2, ry - 1, "data/debug/whitebox.png", alpha, (panel_w - 14) / 20, (ROW_HEIGHT - 1) / 20)
+    end
   end
 
   if hovered_bp then
-    render_blueprint_preview(new_id, hovered_bp, panel_x - 14, hovered_y)
+    if wands_x then
+      -- The wands panel takes the space left of the rows, so the preview goes below it
+      render_blueprint_preview(new_id, hovered_bp, wands_x + 174, wands_bottom + 8)
+    else
+      render_blueprint_preview(new_id, hovered_bp, panel_x - 14, hovered_y)
+    end
   end
 
   -- Scrollbar along the right edge of the list: drag the thumb, or click the track to move by a screen
@@ -492,19 +633,7 @@ local function handle_editor_result(result)
       table.insert(blueprints, bp)
       index = #blueprints
     end
-    -- Show the saved blueprint: switch to its tab if the open one doesn't contain it, and scroll it into view
-    if active_category ~= "all" and active_category ~= bp.category then
-      set_active_category(bp.category)
-    end
-    for position, i in ipairs(get_visible_indices()) do
-      if i == index then
-        if position - 1 < scroll_row then
-          scroll_row = position - 1
-        elseif position > scroll_row + VISIBLE_ROWS then
-          scroll_row = position - VISIBLE_ROWS
-        end
-      end
-    end
+    show_blueprint(index)
     claim_hotkey(bp)
     save_blueprints()
     notify({ "Blueprint " .. bp.name .. " saved" })
@@ -524,11 +653,13 @@ local function update_typing_lock(player, typing)
     end
   end
   controls_enabled_last_frame = controls_enabled
-  -- M-Nee's service mode mutes every mod's M-Nee bindings (e.g. Cartographer's map key) while typing here
-  if mnee_ready and typing ~= typing_last_frame then
-    if typing then
+  -- M-Nee's service mode mutes every mod's M-Nee bindings (e.g. Cartographer's map key) while typing here.
+  -- Re-added every frame while typing, in case another mod lifted it (Advanced Spell Inventory does when typing into
+  -- its filter ends), but only removed when typing here ends, so M-Nee's own use of it isn't undone.
+  if mnee_ready then
+    if typing and not GameHasFlagRun(mnee.SERV_MODE) then
       GameAddFlagRun(mnee.SERV_MODE)
-    else
+    elseif not typing and typing_last_frame then
       GameRemoveFlagRun(mnee.SERV_MODE)
     end
   end
@@ -546,6 +677,53 @@ local function update_inventory_lock(player)
     end
   end
   inventory_enabled_last_frame = inventory_enabled
+end
+
+-- On the game's hotbar: a badge on each wand slot that matches a blueprint (its hotkey's key, or its icon if unbound),
+-- and the held wand's blueprint name under the hotbar. Positions come from the game's own layout values, the offsets
+-- are for fine tuning against what the game actually draws.
+local HOTBAR_BADGE_OFFSET_X, HOTBAR_BADGE_OFFSET_Y = 0, 0
+local HOTBAR_LABEL_OFFSET_X, HOTBAR_LABEL_OFFSET_Y = 0, 0
+local function render_hotbar_info(new_id)
+  local hotbar_x = tonumber(MagicNumbersGetValue("UI_BARS_POS_X")) or 20
+  local hotbar_y = tonumber(MagicNumbersGetValue("UI_BARS_POS_Y")) or 20
+  local slot_size = tonumber(MagicNumbersGetValue("INVENTORY_ICON_SIZE")) or 20
+  local held_wand = apply.get_held_wand()
+  local held_bp
+  for slot = 1, 4 do
+    local info = matcher.wands[slot]
+    if info and info.bp then
+      local bx = hotbar_x + slot * slot_size - 9 + HOTBAR_BADGE_OFFSET_X
+      local by = hotbar_y + slot_size - 9 + HOTBAR_BADGE_OFFSET_Y
+      local key_name = hotkey_key_name(info.bp)
+      if key_name then
+        -- Long combos are cut to fit the slot
+        local text = ui.fit_text(gui, key_name, slot_size - 4)
+        local text_w = GuiGetTextDimensions(gui, text)
+        local box_w = math.max(8, text_w + 2)
+        GuiZSetForNextWidget(gui, -10)
+        GuiColorSetForNextWidget(gui, 0, 0, 0, 1)
+        GuiImage(gui, new_id(), bx + 8 - box_w, by, "data/debug/whitebox.png", 0.7, box_w / 20, 9 / 20)
+        GuiZSetForNextWidget(gui, -11)
+        GuiColorSetForNextWidget(gui, 1, 1, 0.6, 1)
+        GuiText(gui, bx + 8 - box_w + (box_w - text_w) / 2, by - 1, text)
+      elseif info.bp.icon ~= "" then
+        local action = action_lookup[info.bp.icon]
+        ui.spell_icon(gui, new_id, bx, by, info.bp.icon, action and action.sprite or "data/ui_gfx/gun_actions/unidentified.png", 0.4, -10)
+      end
+      if info.entity_id == held_wand then
+        held_bp = info.bp
+      end
+    end
+  end
+  -- Not while Inventory Bags is open, its panel starts right under the hotbar
+  if held_bp and GlobalsGetValue("InventoryBags_is_open", "0") == "0" then
+    local lx, ly = hotbar_x + HOTBAR_LABEL_OFFSET_X, hotbar_y + slot_size + 2 + HOTBAR_LABEL_OFFSET_Y
+    GuiZSetForNextWidget(gui, -10)
+    GuiColorSetForNextWidget(gui, 0.6, 1, 0.6, 1)
+    -- Kept short of x = 160, where Advanced Spell Inventory's and this mod's buttons are by default
+    GuiText(gui, lx, ly, ui.fit_text(gui, held_bp.name, 160 - lx))
+  end
 end
 
 local function handle_hotkeys()
@@ -595,6 +773,7 @@ function OnWorldPostUpdate()
       table.insert(all_actions, action)
     end
     apply.init(EZWand, action_lookup)
+    matcher.init(EZWand, apply)
     ui.init(EZMouse, EZWand)
     editor.init(EZInventory, EZWand, ui, apply, action_lookup, all_actions)
     blueprints = storage.load()
@@ -612,11 +791,22 @@ function OnWorldPostUpdate()
   EZInventory.Update(gui, visible and editor.is_open())
 
   if not ready or not player then
+    -- No player (polymorphed, dead): stop typing, or M-Nee would stay muted until the player is back
+    ui.focused_input = nil
+    if mnee_ready and typing_last_frame then
+      GameRemoveFlagRun(mnee.SERV_MODE)
+      typing_last_frame = false
+    end
     return
   end
 
   update_pending_apply()
   handle_hotkeys()
+  matcher.update(player, blueprints, rename_wands)
+  -- The full inventory lays the wands out differently, so only over the plain hotbar
+  if show_hotbar_info and not inventory_open then
+    render_hotbar_info(new_id)
+  end
 
   -- Toggle button, right-click drag to move it. Hidden while Advanced Spell Inventory's or Inventory Bags' panel is
   -- open, since it sits on top of them by default.

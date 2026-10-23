@@ -26,6 +26,7 @@ These are the changes in this fork compared to upstream [TheHorscht/AdvancedSpel
 
 ## Fixed
 
+- **Typing in the filter no longer triggers M-Nee hotkeys.** Before, the filter only disabled the player's controls, so keys still fired every mod's M-Nee bindings: Cartographer's map key, WandBlueprints' blueprint hotkeys, and this mod's own toggle and dump keys. While the filter has focus, M-Nee's service mode now mutes all of them, the same way WandBlueprints handles its text fields.
 - `AdvancedSpellInventory_is_open` now stays accurate. It's reset to closed when the player spawns, and set to closed when "opening the inventory closes the spell inventory" closes the panel. Before, a stale `1` could make WandBlueprints think the panel was open.
 - Spells taken out of storage are switched to their in-inventory state explicitly. Before, they relied on `Inventory2Component`, which is disabled while the cursor is over the panel.
 - The hidden text input's own cursor no longer shows up at the mouse position.
